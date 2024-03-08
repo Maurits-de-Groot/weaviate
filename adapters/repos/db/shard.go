@@ -201,6 +201,7 @@ type Shard struct {
 	versioner        *shardVersioner
 
 	hashtree             hashtree.AggregatedHashTree
+	hashtreeRWMux        sync.RWMutex
 	hashtreeInitialized  atomic.Bool
 	hashBeaterCtx        context.Context
 	hashBeaterCancelFunc context.CancelFunc
@@ -749,8 +750,11 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) UpdateAsyncReplication(ctx context.Context, _ bool) error {
-	if s.index.asyncReplicationEnabled() {
+func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
+	s.hashtreeRWMux.Lock()
+	defer s.hashtreeRWMux.Unlock()
+
+	if enabled {
 		if s.hashtree != nil {
 			return nil
 		}
@@ -769,6 +773,7 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, _ bool) error {
 
 	s.stopHashBeater()
 	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
 
 	s.index.logger.Infof("async replication disabled on shard %q", s.ID())
 
@@ -846,6 +851,9 @@ func (s *Shard) closeHashTree() error {
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	s.hashtreeRWMux.RLock()
+	defer s.hashtreeRWMux.RUnlock()
+
 	if !s.hashtreeInitialized.Load() {
 		return nil, fmt.Errorf("hashtree was not initialized")
 	}
@@ -881,9 +889,11 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
+	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
 		s.stopHashBeater()
 	}
+	s.hashtreeRWMux.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
@@ -1264,10 +1274,12 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return err
 	}
 
+	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
 		s.stopHashBeater()
 		s.closeHashTree()
 	}
+	s.hashtreeRWMux.Unlock()
 
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
