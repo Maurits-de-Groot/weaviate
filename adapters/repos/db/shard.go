@@ -653,8 +653,11 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	if bucket.GetSecondaryIndices() < 2 {
-		s.index.logger.Warnf(`async replication disabled on shard %q: 
-		secondary index for token ranges is not available`, s.ID())
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warn("secondary index for token ranges is not available")
 		return nil
 	}
 
@@ -683,13 +686,21 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 		if s.hashtree != nil {
 			err := os.Remove(hashtreeFilename)
-			s.index.logger.Warnf("deleting older hashtree file %q (%v)", hashtreeFilename, err)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("deleting older hashtree file %q: %v", hashtreeFilename, err)
 			continue
 		}
 
 		f, err := os.OpenFile(hashtreeFilename, os.O_RDONLY, os.ModePerm)
 		if err != nil {
-			s.index.logger.Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
 			continue
 		}
 
@@ -700,7 +711,11 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 			s.hashtree, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
 		}
 		if err != nil {
-			s.index.logger.Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
 		}
 
 		f.Close()
@@ -709,6 +724,11 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 	if s.hashtree != nil {
 		s.hashtreeInitialized.Store(true)
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Info("hashtree successfully initialized")
 		s.initHashBeater()
 		return nil
 	}
@@ -724,12 +744,22 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	go func() {
 		prevContextEvaluation := time.Now()
 
+		objCount := 0
+
 		err := bucket.IterateObjects(ctx, func(object *storobj.Object) error {
 			if time.Since(prevContextEvaluation) > time.Second {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
+
 				prevContextEvaluation = time.Now()
+
+				s.index.logger.
+					WithField("action", "async_replication").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
+					WithField("objectCount", objCount).
+					Infof("hashtree initialization is progress...")
 			}
 
 			uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
@@ -737,14 +767,32 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 				return err
 			}
 
-			return s.upsertObjectHashTree(object, uuid, objectInsertStatus{})
+			err = s.upsertObjectHashTree(object, uuid, objectInsertStatus{})
+			if err != nil {
+				return err
+			}
+
+			objCount++
+
+			return nil
 		})
 		if err != nil {
-			s.index.logger.Warnf("iterating objects during hashtree initialization: %v", err)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("iterating objects during hashtree initialization: %v", err)
 			return
 		}
 
 		s.hashtreeInitialized.Store(true)
+
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Info("hashtree successfully initialized")
+
 		s.initHashBeater()
 	}()
 
@@ -775,8 +823,6 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	s.stopHashBeater()
 	s.hashtree = nil
 	s.hashtreeInitialized.Store(false)
-
-	s.index.logger.Infof("async replication successfully disabled on shard %q", s.ID())
 
 	return nil
 }
