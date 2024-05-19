@@ -42,7 +42,7 @@ case $CONFIG in
   local-single-node)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \ 
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       ENABLE_MODULES="backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
