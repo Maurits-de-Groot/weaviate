@@ -177,7 +177,7 @@ case $CONFIG in
         --port 8080 \
         --read-timeout=600s \
         --write-timeout=600s
-    ;;  
+    ;;
   local-qna)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -677,7 +677,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  *) 
+  *)
     echo "Invalid config" 2>&1
     exit 1
     ;;
